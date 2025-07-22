@@ -135,4 +135,6 @@ def send_exotic_analytics(message):
 
 bot.polling(none_stop=True)
 
+from init_exotic_db import init_db
+init_db()
 
