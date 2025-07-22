@@ -31,6 +31,26 @@ def consultations_summary():
         'avg_duration': round(avg_time, 1)
     }
 
+def last_month_stats():
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    last_month = datetime.now() - timedelta(days=30)
+    last_month_str = last_month.strftime('%Y-%m-%d %H:%M:%S')
+
+    cursor.execute('''
+        SELECT COUNT(*), AVG(duration_minutes)
+        FROM exotic_consultations
+        WHERE consultation_date >= ?
+    ''', (last_month_str,))
+    count, avg = cursor.fetchone()
+    conn.close()
+
+    return {
+        'count': count or 0,
+        'avg_duration': round(avg or 0, 1)
+    }
+
 def animal_type_chart():
     conn = connect_db()
     cursor = conn.cursor()
@@ -59,6 +79,28 @@ def animal_type_chart():
 
     return buf
 
+def animal_type_pie():
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    cursor.execute('''SELECT animal_type, COUNT(*) FROM exotic_consultations
+                      GROUP BY animal_type''')
+    data = cursor.fetchall()
+    conn.close()
+
+    labels = [row[0] for row in data]
+    sizes = [row[1] for row in data]
+
+    plt.figure(figsize=(6, 6))
+    plt.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=140)
+    plt.title("Распределение консультаций по типу животных")
+    plt.axis('equal')
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    return buf
+
 @bot.message_handler(commands=['start'])
 def start_handler(message):
     bot.send_message(
@@ -70,16 +112,22 @@ def start_handler(message):
 @bot.message_handler(commands=['exotic'])
 def send_exotic_analytics(message):
     summary = consultations_summary()
-    img = animal_type_chart()
+    month = last_month_stats()
+    bar = animal_type_chart()
+    pie = animal_type_pie()
 
     caption = (
         f"📊 Аналитика по консультациям для экзотических животных:\n\n"
         f"🔹 Всего консультаций: {summary['total_consultations']}\n"
         f"🔹 Уникальных пользователей: {summary['unique_users']}\n"
-        f"🔹 Средняя длительность: {summary['avg_duration']} мин\n"
+        f"🔹 Средняя длительность: {summary['avg_duration']} мин\n\n"
+        f"📅 За последний месяц:\n"
+        f"🔹 Консультаций: {month['count']}\n"
+        f"🔹 Средняя длительность: {month['avg_duration']} мин"
     )
 
-    bot.send_photo(message.chat.id, img, caption=caption)
+    bot.send_photo(message.chat.id, bar, caption=caption)
+    bot.send_photo(message.chat.id, pie)
 
 bot.polling(none_stop=True)
 
