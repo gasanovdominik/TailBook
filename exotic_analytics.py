@@ -1,10 +1,13 @@
 import sqlite3
+import os
+import io
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-import io
+from dotenv import load_dotenv
 import telebot
 
-API_TOKEN = '7905050993:AAHV1XOtLoVwXfu--OJNTYlgnIzPoN9rG2w'
+load_dotenv()
+API_TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(API_TOKEN)
 
 def connect_db():
@@ -129,5 +132,7 @@ def send_exotic_analytics(message):
     bot.send_photo(message.chat.id, bar, caption=caption)
     bot.send_photo(message.chat.id, pie)
 
+
 bot.polling(none_stop=True)
+
 
