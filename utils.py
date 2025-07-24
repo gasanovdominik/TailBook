@@ -1,19 +1,32 @@
 import matplotlib.pyplot as plt
-from io import BytesIO
-import tempfile
 
-def generate_horizontal_chart(data: dict, title: str = "Консультации по животным") -> str:
-    fig, ax = plt.subplots(figsize=(8, 4))
+def generate_horizontal_chart(data: dict) -> str:
     animals = list(data.keys())
     counts = list(data.values())
 
-    ax.barh(animals, counts)
-    ax.set_title(title)
-    ax.set_xlabel("Количество")
-    ax.invert_yaxis()
+    plt.figure(figsize=(10, 5))
+    plt.barh(animals, counts)
+    plt.xlabel("Количество консультаций")
+    plt.ylabel("Тип животного")
+    plt.title("Консультации по типам животных")
     plt.tight_layout()
-
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-    plt.savefig(temp_file.name, format="png")
+    file_path = "horizontal_chart.png"
+    plt.savefig(file_path)
     plt.close()
-    return temp_file.name
+    return file_path
+
+def generate_line_chart(data: dict) -> str:
+    weeks = list(data.keys())
+    counts = list(data.values())
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(weeks, counts, marker="o")
+    plt.title("Динамика консультаций по неделям")
+    plt.xlabel("Номер недели")
+    plt.ylabel("Количество консультаций")
+    plt.grid(True)
+
+    file_path = "weekly_chart.png"
+    plt.savefig(file_path)
+    plt.close()
+    return file_path

@@ -2,7 +2,8 @@ import os
 import sqlite3
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from utils import generate_horizontal_chart
+from utils import generate_horizontal_chart, generate_line_chart
+from exotic_analytics import get_retention_stats, get_weekly_stats
 from aiogram.types import FSInputFile
 
 from aiogram import Bot, Dispatcher, F, types
@@ -115,11 +116,17 @@ async def admin_dashboard(message: Message):
 
 @dp.message(F.text == "📊 Общая статистика")
 async def admin_stats(message: Message):
-    await message.answer("📈 Общая статистика: \n– Всего консультаций: 134\n– Уникальных пользователей: 67")
+    total, repeat = get_retention_stats()
+    await message.answer(f"📈 Общая статистика:\n– Всего консультаций: 134\n– Уникальных пользователей: {total}\n– Повторные визиты: {repeat}")
+
+    weekly_data = get_weekly_stats()
+    chart_path = generate_line_chart(weekly_data)
+    await message.answer_photo(photo=FSInputFile(chart_path), caption="📉 Динамика по неделям")
 
 @dp.message(F.text == "👥 Пользователи")
 async def admin_users(message: Message):
-    await message.answer("👤 Всего пользователей: 67\n🔁 Повторные визиты: 21")
+    total, repeat = get_retention_stats()
+    await message.answer(f"👤 Всего пользователей: {total}\n🔁 Повторные визиты: {repeat}")
 
 @dp.message(F.text == "📤 Экспорт")
 async def admin_export(message: Message):
