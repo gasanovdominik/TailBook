@@ -4,13 +4,13 @@ import re
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message, CallbackQuery, InputFile
+from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.enums import ParseMode
+from aiogram.enums.dice_emoji import DiceEmoji
 
 from utils import generate_horizontal_chart
 
@@ -26,7 +26,7 @@ if not ADMIN_ID:
 
 # ==== ИНИЦИАЛИЗАЦИЯ ====
 
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
 
 # ==== FSM ====
@@ -88,12 +88,8 @@ async def filter_callback(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("Нет данных за выбранный период.")
     else:
         data = {animal: count for animal, count in rows}
-        text = "📊 Статистика консультаций:\n\n" + "\n".join(f"🐾 {k}: {v}" for k, v in data.items())
-        await callback.message.answer(text)
-
-        # Отправка графика
-        chart = generate_horizontal_chart(data, title="График по животным")
-        await callback.message.answer_photo(InputFile(chart))
+        chart = generate_horizontal_chart(data, title="Статистика консультаций")
+        await callback.message.answer_photo(photo=chart, caption="📊 Горизонтальный график по животным")
 
     await callback.answer()
 
@@ -135,13 +131,10 @@ async def set_end_date(message: Message, state: FSMContext):
     if not rows:
         await message.answer("Нет данных за выбранный период.")
     else:
-        data = {animal: count for animal, count in rows}
-        text = f"📊 Консультации с {start_date} по {end_date}:\n\n" + "\n".join(f"🐾 {k}: {v}" for k, v in data.items())
+        text = f"📊 Консультации с {start_date} по {end_date}:\n\n"
+        for animal, count in rows:
+            text += f"🐾 {animal}: {count}\n"
         await message.answer(text)
-
-        # Отправка графика
-        chart = generate_horizontal_chart(data, title="График по животным")
-        await message.answer_photo(InputFile(chart))
 
     await state.clear()
 
@@ -163,6 +156,32 @@ async def admin_command(message: Message):
         resize_keyboard=True
     )
     await message.answer("🔐 Admin Dashboard", reply_markup=kb)
+
+# ==== Админские кнопки ====
+
+@dp.message(F.text == "Общая статистика")
+async def handle_stats(message: Message):
+    if str(message.from_user.id) != ADMIN_ID:
+        return
+    await message.answer("📈 Общая статистика пока не реализована.")
+
+@dp.message(F.text == "Пользователи")
+async def handle_users(message: Message):
+    if str(message.from_user.id) != ADMIN_ID:
+        return
+    await message.answer("👤 Раздел 'Пользователи' в разработке.")
+
+@dp.message(F.text == "Экспорт")
+async def handle_export(message: Message):
+    if str(message.from_user.id) != ADMIN_ID:
+        return
+    await message.answer("📁 Функция экспорта будет добавлена позже.")
+
+@dp.message(F.text == "Настройки")
+async def handle_settings(message: Message):
+    if str(message.from_user.id) != ADMIN_ID:
+        return
+    await message.answer("⚙️ Раздел настроек в процессе.")
 
 # ==== RUN ====
 
