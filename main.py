@@ -48,19 +48,21 @@ def get_period_keyboard():
 async def exotic_handler(message: Message):
     await message.answer("Выбери период:", reply_markup=get_period_keyboard())
 
-@dp.callback_query(F.data.startswith("period_"))
-async def handle_fixed_period(callback: CallbackQuery):
-    days = int(callback.data.split("_")[1])
-    end = datetime.now().date()
-    start = end - timedelta(days=days)
-    await callback.message.answer(f"📊 Анализ за период: {start} – {end}")
-    await callback.answer()
+@dp.callback_query()
+async def handle_callback_query(callback: CallbackQuery, state: FSMContext):
+    data = callback.data
 
-@dp.callback_query(F.data == "custom_period")
-async def handle_custom_period(callback: CallbackQuery, state: FSMContext):
-    await state.set_state(DateRangeState.start_date)
-    await callback.message.answer("Введите начальную дату в формате YYYY-MM-DD:")
-    await callback.answer()
+    if data.startswith("period_"):
+        days = int(data.split("_")[1])
+        end = datetime.now().date()
+        start = end - timedelta(days=days)
+        await callback.message.answer(f"📊 Анализ за период: {start} – {end}")
+        await callback.answer()
+
+    elif data == "custom_period":
+        await state.set_state(DateRangeState.start_date)
+        await callback.message.answer("Введите начальную дату в формате YYYY-MM-DD:")
+        await callback.answer()
 
 @dp.message(DateRangeState.start_date)
 async def receive_start_date(message: Message, state: FSMContext):
@@ -107,6 +109,7 @@ async def admin_dashboard(message: Message):
 if __name__ == "__main__":
     import asyncio
     asyncio.run(dp.start_polling(bot))
+
 
 
 
