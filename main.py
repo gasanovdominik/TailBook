@@ -1,99 +1,68 @@
-import asyncio
-import io
-import re
-import sqlite3
-from datetime import datetime, timedelta
-import matplotlib.pyplot as plt
-from aiogram import Bot, Dispatcher, F, types
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.filters.command import Command
-from aiogram.enums import ParseMode
 import os
+import sqlite3
+import re
+import logging
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup
+from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.enums import ParseMode
+from aiogram.utils.markdown import hbold
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import FSInputFile
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from utils import generate_horizontal_chart
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
-dp = Dispatcher(storage=MemoryStorage())
+bot = Bot(token=os.getenv("API_TOKEN"))
+dp = Dispatcher()
 
-
-# ========== FSM Состояния ==========
+# === FSM ===
 class DateRangeState(StatesGroup):
     start_date = State()
     end_date = State()
 
-
-# ========== Клавиатура фильтрации ==========
-filter_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="7 дней", callback_data="filter_7")],
-    [InlineKeyboardButton(text="30 дней", callback_data="filter_30")],
-    [InlineKeyboardButton(text="Год", callback_data="filter_365")],
-    [InlineKeyboardButton(text="Произвольный период", callback_data="filter_custom")]
-])
-
-
-# ========== Подключение к БД ==========
+# === DB connect ===
 def connect_db():
     return sqlite3.connect("support_bot.db")
 
+# === Inline кнопки ===
+def get_exotic_buttons():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="7 дней", callback_data="filter_7")
+    kb.button(text="30 дней", callback_data="filter_30")
+    kb.button(text="Год", callback_data="filter_365")
+    kb.button(text="Произвольный период", callback_data="filter_custom")
+    kb.adjust(1)
+    return kb.as_markup()
 
-# ========== Горизонтальный график ==========
-def generate_horizontal_chart(start_date: str, end_date: str) -> io.BytesIO | None:
-    conn = connect_db()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT animal_type, COUNT(*) FROM exotic_consultations
-        WHERE consultation_date BETWEEN ? AND ?
-        GROUP BY animal_type
-    ''', (start_date + " 00:00:00", end_date + " 23:59:59"))
-    data = cursor.fetchall()
-    conn.close()
-
-    if not data:
-        return None
-
-    animals = [row[0] for row in data]
-    counts = [row[1] for row in data]
-
-    plt.figure(figsize=(8, 5))
-    bars = plt.barh(animals, counts, color='mediumseagreen')
-    plt.xlabel("Количество консультаций")
-    plt.title("Консультации по типам животных")
-
-    for bar in bars:
-        width = bar.get_width()
-        plt.text(width + 0.1, bar.get_y() + bar.get_height() / 2, str(int(width)), va='center')
-
-    buf = io.BytesIO()
-    plt.tight_layout()
-    plt.savefig(buf, format='png')
-    buf.seek(0)
-    return buf
-
-
-# ========== Команда /start ==========
-@dp.message(Command("start"))
+# === /start ===
+@dp.message(CommandStart())
 async def start_handler(message: Message):
     await message.answer("Привет! Я бот аналитики по экзотическим животным 🦎\n\nИспользуй /exotic")
 
-
-# ========== Команда /exotic ==========
+# === /exotic ===
 @dp.message(Command("exotic"))
 async def exotic_handler(message: Message):
-    await message.answer("Выбери период:", reply_markup=filter_keyboard)
+    await message.answer("Выбери период:", reply_markup=get_exotic_buttons())
 
-
-# ========== Кнопки 7, 30, 365 дней ==========
+# === Кнопки периодов ===
 @dp.callback_query(F.data.startswith("filter_"))
-async def filter_predefined(callback: CallbackQuery):
-    period = callback.data.split("_")[1]
-    days = int(period)
-    end = datetime.now()
-    start = end - timedelta(days=days)
+async def filter_callback(callback: CallbackQuery):
+    code = callback.data.split("_")[1]
+    if code == "custom":
+        await callback.message.answer("Введите начальную дату в формате YYYY-MM-DD:")
+        await dp.fsm.set_state(callback.from_user.id, DateRangeState.start_date.state)
+        await callback.answer()
+        return
+
+    days = int(code)
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -101,53 +70,39 @@ async def filter_predefined(callback: CallbackQuery):
         SELECT animal_type, COUNT(*) FROM exotic_consultations
         WHERE consultation_date BETWEEN ? AND ?
         GROUP BY animal_type
-    ''', (start.strftime('%Y-%m-%d 00:00:00'), end.strftime('%Y-%m-%d 23:59:59')))
+    ''', (start_date.strftime("%Y-%m-%d 00:00:00"), end_date.strftime("%Y-%m-%d 23:59:59")))
     rows = cursor.fetchall()
     conn.close()
 
     if not rows:
-        await callback.message.answer("Нет данных за этот период.")
-        return
+        await callback.message.answer("Нет данных за выбранный период.")
+    else:
+        text = "\ud83d\udcca Статистика консультаций:\n\n"
+        for animal, count in rows:
+            text += f"\ud83d\udc3e {animal}: {count}\n"
+        await callback.message.answer(text)
 
-    text = f"📊 Статистика консультаций:\n\n"
-    for animal, count in rows:
-        text += f"🐾 {animal}: {count}\n"
-    await callback.message.answer(text)
-
-    chart = generate_horizontal_chart(start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
-    if chart:
-        await callback.message.answer_photo(chart, caption="График по типам животных 🐾")
-
+        chart = generate_horizontal_chart(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+        if chart:
+            await callback.message.answer_photo(photo=chart, caption="График по типам животных")
     await callback.answer()
 
-
-# ========== Кнопка "Произвольный период" ==========
-@dp.callback_query(F.data == "filter_custom")
-async def start_custom_filter(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Введите начальную дату в формате YYYY-MM-DD:")
-    await state.set_state(DateRangeState.start_date)
-    await callback.answer()
-
-
-# ========== Ввод первой даты ==========
+# === FSM: кастомные даты ===
 @dp.message(DateRangeState.start_date)
 async def set_start_date(message: Message, state: FSMContext):
     date_text = message.text.strip()
     if not re.match(r"\d{4}-\d{2}-\d{2}", date_text):
-        await message.answer("❗ Неверный формат. Введите дату в формате YYYY-MM-DD:")
+        await message.answer("Неверный формат. Введите дату в формате YYYY-MM-DD:")
         return
-
     await state.update_data(start_date=date_text)
     await message.answer("Теперь введите конечную дату в формате YYYY-MM-DD:")
     await state.set_state(DateRangeState.end_date)
 
-
-# ========== Ввод второй даты и вывод графика ==========
 @dp.message(DateRangeState.end_date)
 async def set_end_date(message: Message, state: FSMContext):
     date_text = message.text.strip()
     if not re.match(r"\d{4}-\d{2}-\d{2}", date_text):
-        await message.answer("❗ Неверный формат. Введите дату в формате YYYY-MM-DD:")
+        await message.answer("Неверный формат. Введите дату в формате YYYY-MM-DD:")
         return
 
     data = await state.get_data()
@@ -167,23 +122,35 @@ async def set_end_date(message: Message, state: FSMContext):
     if not rows:
         await message.answer("Нет данных за выбранный период.")
     else:
-        text = f"📊 Консультации с {start_date} по {end_date}:\n\n"
+        text = f"\ud83d\udcca Консультации с {start_date} по {end_date}:\n\n"
         for animal, count in rows:
-            text += f"🐾 {animal}: {count}\n"
+            text += f"\ud83d\udc3e {animal}: {count}\n"
         await message.answer(text)
 
         chart = generate_horizontal_chart(start_date, end_date)
         if chart:
-            await message.answer_photo(photo=chart, caption="График по типам животных 🐾")
+            await message.answer_photo(photo=chart, caption="График по типам животных")
 
     await state.clear()
 
+# === /admin ===
+@dp.message(Command("admin"))
+async def admin_command(message: Message):
+    admin_id = int(os.getenv("ADMIN_ID", "0"))
+    if message.from_user.id != admin_id:
+        await message.answer("\u274c У вас нет доступа к админ-панели.")
+        return
 
-# ========== Запуск бота ==========
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
+        ["\ud83d\udcca Общая статистика", "\ud83d\udc65 Пользователи"],
+        ["\ud83d\udcc1 Экспорт", "\u2699\ufe0f Настройки"]
+    ])
+    await message.answer("\ud83d\udd10 Admin Dashboard", reply_markup=kb)
+
+# === MAIN ===
 if __name__ == "__main__":
-    import logging
-
-    logging.basicConfig(level=logging.INFO)
+    import asyncio
     asyncio.run(dp.start_polling(bot))
+
 
 
