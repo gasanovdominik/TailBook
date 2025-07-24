@@ -2,8 +2,17 @@ import os
 import sqlite3
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from utils import generate_horizontal_chart, generate_line_chart
-from exotic_analytics import get_retention_stats, get_weekly_stats
+from utils import (
+    generate_horizontal_chart,
+    generate_line_chart,
+    generate_bar_chart,
+    generate_pie_chart,
+)
+from exotic_analytics import (
+    get_retention_stats,
+    get_weekly_stats,
+    get_summary_stats
+)
 from aiogram.types import FSInputFile
 
 from aiogram import Bot, Dispatcher, F, types
@@ -11,7 +20,11 @@ from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import (
+    Message, CallbackQuery,
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardMarkup, KeyboardButton
+)
 
 load_dotenv()
 
@@ -34,66 +47,35 @@ class DateRangeState(StatesGroup):
 async def start_handler(message: Message):
     await message.answer("Привет! Я бот аналитики по экзотическим животным 🦎\n\nИспользуй /exotic")
 
-def get_period_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="7 дней", callback_data="period_7")],
-        [InlineKeyboardButton(text="30 дней", callback_data="period_30")],
-        [InlineKeyboardButton(text="Год", callback_data="period_365")],
-        [InlineKeyboardButton(text="Произвольный период", callback_data="custom_period")]
-    ])
-
 @dp.message(Command("exotic"))
 async def exotic_handler(message: Message):
-    await message.answer("Выбери период:", reply_markup=get_period_keyboard())
+    stats = get_summary_stats()
 
-@dp.callback_query()
-async def handle_callback_query(callback: CallbackQuery, state: FSMContext):
-    data = callback.data
+    text = (
+        "<b>📊 Аналитика по консультациям для экзотических животных:</b>\n\n"
+        f"🔹 Всего консультаций: {stats['total']}\n"
+        f"🔹 Уникальных пользователей: {stats['unique_users']}\n"
+        f"🔹 Средняя длительность: {stats['avg_duration']} мин\n\n"
+        "📅 <b>За последний месяц:</b>\n"
+        f"🔹 Консультаций: {stats['monthly_count']}\n"
+        f"🔹 Средняя длительность: {stats['monthly_avg_duration']} мин"
+    )
 
-    if data.startswith("period_"):
-        days = int(data.split("_")[1])
-        end = datetime.now().date()
-        start = end - timedelta(days=days)
+    # Тестовые данные для графиков
+    graph_data = {
+        "Игуана": 21,
+        "Паук-птицеед": 23,
+        "Попугай": 38,
+        "Фретка": 33,
+        "Хамелеон": 35
+    }
 
-        await callback.message.answer(f"📊 Анализ за период: {start} – {end}")
+    bar_path = generate_bar_chart(graph_data)
+    pie_path = generate_pie_chart(graph_data)
 
-        test_data = {
-            "Попугаи": 12,
-            "Кошки": 30,
-            "Собаки": 45,
-            "Рептилии": 7,
-            "Обезьяны": 2
-        }
-        image_path = generate_horizontal_chart(test_data)
-        photo = FSInputFile(image_path, filename="chart.png")
-        await callback.message.answer_photo(photo=photo, caption="График консультаций по животным 🐾")
-        await callback.answer()
-
-    elif data == "custom_period":
-        await state.set_state(DateRangeState.start_date)
-        await callback.message.answer("Введите начальную дату в формате YYYY-MM-DD:")
-        await callback.answer()
-
-@dp.message(DateRangeState.start_date)
-async def receive_start_date(message: Message, state: FSMContext):
-    try:
-        start_date = datetime.strptime(message.text, "%Y-%m-%d").date()
-        await state.update_data(start_date=start_date)
-        await state.set_state(DateRangeState.end_date)
-        await message.answer("Введите конечную дату в формате YYYY-MM-DD:")
-    except ValueError:
-        await message.answer("❌ Неверный формат. Попробуйте снова: YYYY-MM-DD")
-
-@dp.message(DateRangeState.end_date)
-async def receive_end_date(message: Message, state: FSMContext):
-    try:
-        end_date = datetime.strptime(message.text, "%Y-%m-%d").date()
-        data = await state.get_data()
-        start_date = data.get("start_date")
-        await state.clear()
-        await message.answer(f"📊 Анализ за период: {start_date} – {end_date}")
-    except ValueError:
-        await message.answer("❌ Неверный формат. Попробуйте снова: YYYY-MM-DD")
+    await message.answer_photo(FSInputFile(bar_path))
+    await message.answer(text, parse_mode="HTML")
+    await message.answer_photo(FSInputFile(pie_path))
 
 @dp.message(Command("admin"))
 async def admin_dashboard(message: Message):
@@ -108,8 +90,7 @@ async def admin_dashboard(message: Message):
             [KeyboardButton(text="📤 Экспорт")],
             [KeyboardButton(text="⚙️ Настройки")]
         ],
-        resize_keyboard=True,
-        input_field_placeholder="Выберите раздел"
+        resize_keyboard=True
     )
 
     await message.answer("🔐 Добро пожаловать в Admin Dashboard!", reply_markup=keyboard)
