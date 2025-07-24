@@ -6,3 +6,4 @@ python-dateutil==2.9.0.post0
 requests==2.32.4
 pillow==11.3.0
 python-dotenv==1.1.1
+aiogram==3.4.1
