@@ -113,6 +113,22 @@ async def admin_dashboard(message: Message):
 
     await message.answer("🔐 Добро пожаловать в Admin Dashboard!", reply_markup=keyboard)
 
+@dp.message(F.text == "📊 Общая статистика")
+async def admin_stats(message: Message):
+    await message.answer("📈 Общая статистика: \n– Всего консультаций: 134\n– Уникальных пользователей: 67")
+
+@dp.message(F.text == "👥 Пользователи")
+async def admin_users(message: Message):
+    await message.answer("👤 Всего пользователей: 67\n🔁 Повторные визиты: 21")
+
+@dp.message(F.text == "📤 Экспорт")
+async def admin_export(message: Message):
+    await message.answer("📤 Экспорт скоро будет доступен (CSV / Excel)")
+
+@dp.message(F.text == "⚙️ Настройки")
+async def admin_settings(message: Message):
+    await message.answer("⚙️ Здесь будут настройки: смена периода, автоотчёты, фильтры и т.д.")
+
 if __name__ == "__main__":
     import asyncio
     asyncio.run(dp.start_polling(bot))
