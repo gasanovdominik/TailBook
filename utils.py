@@ -1,7 +1,8 @@
 import matplotlib.pyplot as plt
 from io import BytesIO
+import tempfile
 
-def generate_horizontal_chart(data: dict, title: str = "Консультации по животным") -> BytesIO:
+def generate_horizontal_chart(data: dict, title: str = "Консультации по животным") -> str:
     fig, ax = plt.subplots(figsize=(8, 4))
     animals = list(data.keys())
     counts = list(data.values())
@@ -12,9 +13,7 @@ def generate_horizontal_chart(data: dict, title: str = "Консультации
     ax.invert_yaxis()
     plt.tight_layout()
 
-    buffer = BytesIO()
-    plt.savefig(buffer, format="png")
-    buffer.seek(0)
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    plt.savefig(temp_file.name, format="png")
     plt.close()
-    return buffer
-
+    return temp_file.name
