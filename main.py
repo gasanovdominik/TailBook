@@ -1,84 +1,78 @@
 import os
-import asyncio
 import sqlite3
+import re
 from datetime import datetime, timedelta
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, CallbackQuery
-from aiogram.fsm.state import StatesGroup, State
+
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from dotenv import load_dotenv
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.types import Message, CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.enums import ParseMode
+from aiogram.enums.dice_emoji import DiceEmoji
 
-# Загрузка переменных окружения
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+from utils import generate_horizontal_chart
 
-# FSM состояния
+# ==== ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ====
+
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_ID = os.environ.get("ADMIN_ID")
+
+if not BOT_TOKEN:
+    raise RuntimeError("❌ BOT_TOKEN отсутствует в переменных окружения")
+if not ADMIN_ID:
+    raise RuntimeError("❌ ADMIN_ID отсутствует в переменных окружения")
+
+# ==== ИНИЦИАЛИЗАЦИЯ ====
+
+bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+dp = Dispatcher()
+
+# ==== FSM ====
+
 class DateRangeState(StatesGroup):
     start_date = State()
     end_date = State()
 
-# Бот и диспетчер
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+# ==== БАЗА ====
 
-# Кнопки
-filter_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="7 дней", callback_data="filter_7")],
-    [InlineKeyboardButton(text="30 дней", callback_data="filter_30")],
-    [InlineKeyboardButton(text="Год", callback_data="filter_365")],
-    [InlineKeyboardButton(text="Произвольный период", callback_data="filter_custom")]
-])
-
-# Подключение к базе
 def connect_db():
     return sqlite3.connect("support_bot.db")
 
-# Команда /start
-@dp.message(F.text == "/start")
-async def start_handler(message: Message):
-    await message.answer("Привет! Я бот аналитики по экзотическим животным 🐍\n\nИспользуй /exotic")
+# ==== /start ====
 
-# Команда /exotic
-@dp.message(F.text == "/exotic")
-async def exotic_handler(message: Message):
-    await message.answer("Выбери период:", reply_markup=filter_keyboard)
+@dp.message(Command("start"))
+async def cmd_start(message: Message):
+    await message.answer("Привет! Я бот аналитики по экзотическим животным 🦎\n\nИспользуй /exotic")
 
-# Команда /admin
-@dp.message(F.text == "/admin")
-async def admin_handler(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("Доступ запрещён.")
-        return
+# ==== /exotic ====
 
-    await message.answer("Admin Dashboard:\n\n(Здесь будут кнопки и функции админки)")
+@dp.message(Command("exotic"))
+async def cmd_exotic(message: Message):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="7 дней", callback_data="filter_7")
+    kb.button(text="30 дней", callback_data="filter_30")
+    kb.button(text="Год", callback_data="filter_365")
+    kb.button(text="Произвольный период", callback_data="filter_custom")
+    kb.adjust(1)
+    await message.answer("Выбери период:", reply_markup=kb.as_markup())
 
-# Callback кнопки
+# ==== ОБРАБОТКА ФИЛЬТРОВ ====
+
 @dp.callback_query(F.data.startswith("filter_"))
 async def filter_callback(callback: CallbackQuery, state: FSMContext):
-    period = callback.data.split("_")[1]
-    now = datetime.now()
+    action = callback.data.split("_")[1]
 
-    if period == "custom":
+    if action == "custom":
         await callback.message.answer("Введите начальную дату в формате YYYY-MM-DD:")
         await state.set_state(DateRangeState.start_date)
         await callback.answer()
         return
 
-    if period == "7":
-        start = now - timedelta(days=7)
-    elif period == "30":
-        start = now - timedelta(days=30)
-    elif period == "365":
-        start = now - timedelta(days=365)
-    else:
-        await callback.message.answer("Неверный выбор.")
-        return
-
-    start_str = start.strftime("%Y-%m-%d 00:00:00")
-    end_str = now.strftime("%Y-%m-%d 23:59:59")
+    days = int(action)
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -86,68 +80,89 @@ async def filter_callback(callback: CallbackQuery, state: FSMContext):
         SELECT animal_type, COUNT(*) FROM exotic_consultations
         WHERE consultation_date BETWEEN ? AND ?
         GROUP BY animal_type
-    ''', (start_str, end_str))
+    ''', (start_date.strftime("%Y-%m-%d %H:%M:%S"), end_date.strftime("%Y-%m-%d %H:%M:%S")))
     rows = cursor.fetchall()
     conn.close()
 
     if not rows:
         await callback.message.answer("Нет данных за выбранный период.")
     else:
-        text = f"Статистика консультаций:\n\n"
+        text = "📊 Статистика консультаций:\n\n"
         for animal, count in rows:
-            text += f"{animal}: {count}\n"
+            text += f"🐾 {animal}: {count}\n"
         await callback.message.answer(text)
 
     await callback.answer()
 
-# Первая дата (ввод пользователем)
+# ==== FSM: ВВОД ПЕРВОЙ ДАТЫ ====
+
 @dp.message(DateRangeState.start_date)
-async def custom_start(message: Message, state: FSMContext):
-    text = message.text.strip()
-    try:
-        datetime.strptime(text, "%Y-%m-%d")
-        await state.update_data(start_date=text)
-        await message.answer("Введите конечную дату в формате YYYY-MM-DD:")
-        await state.set_state(DateRangeState.end_date)
-    except ValueError:
-        await message.answer("Неверный формат. Введите дату в формате YYYY-MM-DD.")
+async def set_start_date(message: Message, state: FSMContext):
+    date_text = message.text.strip()
+    if not re.match(r"\d{4}-\d{2}-\d{2}", date_text):
+        await message.answer("❗ Неверный формат. Введите дату в формате YYYY-MM-DD:")
+        return
+    await state.update_data(start_date=date_text)
+    await message.answer("Теперь введите конечную дату в формате YYYY-MM-DD:")
+    await state.set_state(DateRangeState.end_date)
 
-# Вторая дата
+# ==== FSM: ВВОД ВТОРОЙ ДАТЫ ====
+
 @dp.message(DateRangeState.end_date)
-async def custom_end(message: Message, state: FSMContext):
-    text = message.text.strip()
-    try:
-        datetime.strptime(text, "%Y-%m-%d")
-        data = await state.get_data()
-        start = data["start_date"]
-        end = text
+async def set_end_date(message: Message, state: FSMContext):
+    date_text = message.text.strip()
+    if not re.match(r"\d{4}-\d{2}-\d{2}", date_text):
+        await message.answer("❗ Неверный формат. Введите дату в формате YYYY-MM-DD:")
+        return
 
-        conn = connect_db()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT animal_type, COUNT(*) FROM exotic_consultations
-            WHERE consultation_date BETWEEN ? AND ?
-            GROUP BY animal_type
-        ''', (start + " 00:00:00", end + " 23:59:59"))
-        rows = cursor.fetchall()
-        conn.close()
+    data = await state.get_data()
+    start_date = data['start_date']
+    end_date = date_text
 
-        if not rows:
-            await message.answer("Нет данных за выбранный период.")
-        else:
-            text = f"Статистика консультаций:\n\n"
-            for animal, count in rows:
-                text += f"{animal}: {count}\n"
-            await message.answer(text)
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT animal_type, COUNT(*) FROM exotic_consultations
+        WHERE consultation_date BETWEEN ? AND ?
+        GROUP BY animal_type
+    ''', (start_date + " 00:00:00", end_date + " 23:59:59"))
+    rows = cursor.fetchall()
+    conn.close()
 
-        await state.clear()
-    except ValueError:
-        await message.answer("Неверный формат. Введите дату в формате YYYY-MM-DD.")
+    if not rows:
+        await message.answer("Нет данных за выбранный период.")
+    else:
+        text = f"📊 Консультации с {start_date} по {end_date}:\n\n"
+        for animal, count in rows:
+            text += f"🐾 {animal}: {count}\n"
+        await message.answer(text)
 
-# Запуск
+    await state.clear()
+
+# ==== /admin ====
+
+@dp.message(Command("admin"))
+async def admin_command(message: Message):
+    if str(message.from_user.id) != ADMIN_ID:
+        await message.answer("❌ У вас нет доступа к админ-панели.")
+        return
+
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Общая статистика")],
+            [KeyboardButton(text="Пользователи")],
+            [KeyboardButton(text="Экспорт")],
+            [KeyboardButton(text="Настройки")]
+        ],
+        resize_keyboard=True
+    )
+    await message.answer("🔐 Admin Dashboard", reply_markup=kb)
+
+# ==== RUN ====
+
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(dp.start_polling(bot))
-
 
 
 
