@@ -4,13 +4,13 @@ import re
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, types
+from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.enums import ParseMode
-from aiogram.enums.dice_emoji import DiceEmoji
 
 from utils import generate_horizontal_chart
 
@@ -26,7 +26,7 @@ if not ADMIN_ID:
 
 # ==== ИНИЦИАЛИЗАЦИЯ ====
 
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
 # ==== FSM ====
@@ -87,13 +87,13 @@ async def filter_callback(callback: CallbackQuery, state: FSMContext):
     if not rows:
         await callback.message.answer("Нет данных за выбранный период.")
     else:
-        data_dict = {animal: count for animal, count in rows}
-        chart = generate_horizontal_chart(data_dict, title="Консультации по типам животных")
-        await callback.message.answer_photo(
-            types.BufferedInputFile(chart.read(), filename="chart.png"),
-            caption="📊 Статистика консультаций"
-        )
-        chart.close()
+        data = {animal: count for animal, count in rows}
+        text = "📊 Статистика консультаций:\n\n" + "\n".join(f"🐾 {k}: {v}" for k, v in data.items())
+        await callback.message.answer(text)
+
+        # Отправка графика
+        chart = generate_horizontal_chart(data, title="График по животным")
+        await callback.message.answer_photo(InputFile(chart))
 
     await callback.answer()
 
@@ -135,13 +135,13 @@ async def set_end_date(message: Message, state: FSMContext):
     if not rows:
         await message.answer("Нет данных за выбранный период.")
     else:
-        data_dict = {animal: count for animal, count in rows}
-        chart = generate_horizontal_chart(data_dict, title=f"Консультации с {start_date} по {end_date}")
-        await message.answer_photo(
-            types.BufferedInputFile(chart.read(), filename="chart.png"),
-            caption=f"📊 Консультации с {start_date} по {end_date}"
-        )
-        chart.close()
+        data = {animal: count for animal, count in rows}
+        text = f"📊 Консультации с {start_date} по {end_date}:\n\n" + "\n".join(f"🐾 {k}: {v}" for k, v in data.items())
+        await message.answer(text)
+
+        # Отправка графика
+        chart = generate_horizontal_chart(data, title="График по животным")
+        await message.answer_photo(InputFile(chart))
 
     await state.clear()
 
