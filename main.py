@@ -2,15 +2,15 @@ import os
 import sqlite3
 import re
 from datetime import datetime, timedelta
+from io import BytesIO
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.enums import ParseMode
-from aiogram.enums.dice_emoji import DiceEmoji
 
 from utils import generate_horizontal_chart
 
@@ -20,7 +20,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID")
 
 if not BOT_TOKEN:
-    raise RuntimeError("❌ BOT_TOKEN отсутствует в переменных окружения")
+    raise RuntimeError("❌ BOT_TOKEN отсутстует в переменных окружения")
 if not ADMIN_ID:
     raise RuntimeError("❌ ADMIN_ID отсутствует в переменных окружения")
 
@@ -58,60 +58,33 @@ async def cmd_exotic(message: Message):
     kb.adjust(1)
     await message.answer("Выбери период:", reply_markup=kb.as_markup())
 
-# ==== ОБРАБОТКА ФИЛЬТРОВ ====
+# ==== Кнопка Произвольный период ====
 
-@dp.callback_query(F.data.startswith("filter_"))
-async def filter_callback(callback: CallbackQuery, state: FSMContext):
-    action = callback.data.split("_")[1]
-
-    if action == "custom":
-        await callback.message.answer("Введите начальную дату в формате YYYY-MM-DD:")
-        await state.set_state(DateRangeState.start_date)
-        await callback.answer()
-        return
-
-    days = int(action)
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=days)
-
-    conn = connect_db()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT animal_type, COUNT(*) FROM exotic_consultations
-        WHERE consultation_date BETWEEN ? AND ?
-        GROUP BY animal_type
-    ''', (start_date.strftime("%Y-%m-%d %H:%M:%S"), end_date.strftime("%Y-%m-%d %H:%M:%S")))
-    rows = cursor.fetchall()
-    conn.close()
-
-    if not rows:
-        await callback.message.answer("Нет данных за выбранный период.")
-    else:
-        data = {animal: count for animal, count in rows}
-        chart = generate_horizontal_chart(data, title="Статистика консультаций")
-        await callback.message.answer_photo(photo=chart, caption="📊 Горизонтальный график по животным")
-
+@dp.callback_query(F.data == "filter_custom")
+async def filter_custom(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите начальную дату в формате YYYY-MM-DD:")
+    await state.set_state(DateRangeState.start_date)
     await callback.answer()
 
-# ==== FSM: ВВОД ПЕРВОЙ ДАТЫ ====
+# ==== FSM: Ввод первой даты ====
 
 @dp.message(DateRangeState.start_date)
 async def set_start_date(message: Message, state: FSMContext):
     date_text = message.text.strip()
     if not re.match(r"\d{4}-\d{2}-\d{2}", date_text):
-        await message.answer("❗ Неверный формат. Введите дату в формате YYYY-MM-DD:")
+        await message.answer("\u2757 Неверный формат. Введите дату в формате YYYY-MM-DD:")
         return
     await state.update_data(start_date=date_text)
     await message.answer("Теперь введите конечную дату в формате YYYY-MM-DD:")
     await state.set_state(DateRangeState.end_date)
 
-# ==== FSM: ВВОД ВТОРОЙ ДАТЫ ====
+# ==== FSM: Ввод второй даты ====
 
 @dp.message(DateRangeState.end_date)
 async def set_end_date(message: Message, state: FSMContext):
     date_text = message.text.strip()
     if not re.match(r"\d{4}-\d{2}-\d{2}", date_text):
-        await message.answer("❗ Неверный формат. Введите дату в формате YYYY-MM-DD:")
+        await message.answer("\u2757 Неверный формат. Введите дату в формате YYYY-MM-DD:")
         return
 
     data = await state.get_data()
@@ -131,19 +104,55 @@ async def set_end_date(message: Message, state: FSMContext):
     if not rows:
         await message.answer("Нет данных за выбранный период.")
     else:
-        text = f"📊 Консультации с {start_date} по {end_date}:\n\n"
-        for animal, count in rows:
-            text += f"🐾 {animal}: {count}\n"
-        await message.answer(text)
+        data = {animal: count for animal, count in rows}
+        chart = generate_horizontal_chart(data, f"{start_date} - {end_date}")
+        await message.answer_photo(types.InputFile(chart), caption=f"\ud83d\udcca Консультации с {start_date} по {end_date}")
 
     await state.clear()
+
+# ==== Обработка фиксированных фильтров ====
+
+async def process_filter(callback: CallbackQuery, days: int):
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT animal_type, COUNT(*) FROM exotic_consultations
+        WHERE consultation_date BETWEEN ? AND ?
+        GROUP BY animal_type
+    ''', (start_date.strftime("%Y-%m-%d %H:%M:%S"), end_date.strftime("%Y-%m-%d %H:%M:%S")))
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        await callback.message.answer("Нет данных за выбранный период.")
+    else:
+        data = {animal: count for animal, count in rows}
+        chart = generate_horizontal_chart(data, f"Последние {days} дней")
+        await callback.message.answer_photo(types.InputFile(chart), caption=f"\ud83d\udcca Консультации за {days} дней")
+
+    await callback.answer()
+
+@dp.callback_query(F.data == "filter_7")
+async def filter_7(callback: CallbackQuery):
+    await process_filter(callback, 7)
+
+@dp.callback_query(F.data == "filter_30")
+async def filter_30(callback: CallbackQuery):
+    await process_filter(callback, 30)
+
+@dp.callback_query(F.data == "filter_365")
+async def filter_365(callback: CallbackQuery):
+    await process_filter(callback, 365)
 
 # ==== /admin ====
 
 @dp.message(Command("admin"))
 async def admin_command(message: Message):
     if str(message.from_user.id) != ADMIN_ID:
-        await message.answer("❌ У вас нет доступа к админ-панели.")
+        await message.answer("\u274c У вас нет доступа к админ-панели.")
         return
 
     kb = ReplyKeyboardMarkup(
@@ -155,39 +164,14 @@ async def admin_command(message: Message):
         ],
         resize_keyboard=True
     )
-    await message.answer("🔐 Admin Dashboard", reply_markup=kb)
-
-# ==== Админские кнопки ====
-
-@dp.message(F.text == "Общая статистика")
-async def handle_stats(message: Message):
-    if str(message.from_user.id) != ADMIN_ID:
-        return
-    await message.answer("📈 Общая статистика пока не реализована.")
-
-@dp.message(F.text == "Пользователи")
-async def handle_users(message: Message):
-    if str(message.from_user.id) != ADMIN_ID:
-        return
-    await message.answer("👤 Раздел 'Пользователи' в разработке.")
-
-@dp.message(F.text == "Экспорт")
-async def handle_export(message: Message):
-    if str(message.from_user.id) != ADMIN_ID:
-        return
-    await message.answer("📁 Функция экспорта будет добавлена позже.")
-
-@dp.message(F.text == "Настройки")
-async def handle_settings(message: Message):
-    if str(message.from_user.id) != ADMIN_ID:
-        return
-    await message.answer("⚙️ Раздел настроек в процессе.")
+    await message.answer("\ud83d\udd10 Admin Dashboard", reply_markup=kb)
 
 # ==== RUN ====
 
 if __name__ == "__main__":
     import asyncio
     asyncio.run(dp.start_polling(bot))
+
 
 
 
