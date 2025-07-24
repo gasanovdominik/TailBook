@@ -2,6 +2,8 @@ import os
 import sqlite3
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from utils import generate_horizontal_chart
+from aiogram.types import FSInputFile
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ParseMode
@@ -12,7 +14,6 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 
 load_dotenv()
 
-# ==== ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ====
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID")
 
@@ -21,21 +22,17 @@ if not BOT_TOKEN:
 if not ADMIN_ID:
     raise RuntimeError("❌ ADMIN_ID отсутствует в переменных окружения")
 
-# ==== ИНИЦИАЛИЗАЦИЯ ====
 bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
 
-# ==== FSM ====
 class DateRangeState(StatesGroup):
     start_date = State()
     end_date = State()
 
-# ==== /start ====
 @dp.message(Command("start"))
 async def start_handler(message: Message):
     await message.answer("Привет! Я бот аналитики по экзотическим животным 🦎\n\nИспользуй /exotic")
 
-# ==== /exotic и кнопки ====
 def get_period_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="7 дней", callback_data="period_7")],
@@ -56,7 +53,19 @@ async def handle_callback_query(callback: CallbackQuery, state: FSMContext):
         days = int(data.split("_")[1])
         end = datetime.now().date()
         start = end - timedelta(days=days)
+
         await callback.message.answer(f"📊 Анализ за период: {start} – {end}")
+
+        test_data = {
+            "Попугаи": 12,
+            "Кошки": 30,
+            "Собаки": 45,
+            "Рептилии": 7,
+            "Обезьяны": 2
+        }
+        image = generate_horizontal_chart(test_data)
+        await callback.message.answer_photo(photo=image, caption="График консультаций по животным 🐾")
+
         await callback.answer()
 
     elif data == "custom_period":
@@ -85,7 +94,6 @@ async def receive_end_date(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("❌ Неверный формат. Попробуйте снова: YYYY-MM-DD")
 
-# ==== /admin ====
 @dp.message(Command("admin"))
 async def admin_dashboard(message: Message):
     if str(message.from_user.id) != str(ADMIN_ID):
@@ -105,10 +113,10 @@ async def admin_dashboard(message: Message):
 
     await message.answer("🔐 Добро пожаловать в Admin Dashboard!", reply_markup=keyboard)
 
-# ==== Запуск ====
 if __name__ == "__main__":
     import asyncio
     asyncio.run(dp.start_polling(bot))
+
 
 
 
