@@ -17,3 +17,4 @@ def generate_horizontal_chart(data: dict, title: str = "Консультации
     buffer.seek(0)
     plt.close()
     return buffer
+

@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from utils import generate_horizontal_chart
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, InputFile
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ParseMode
@@ -64,8 +64,8 @@ async def handle_callback_query(callback: CallbackQuery, state: FSMContext):
             "Обезьяны": 2
         }
         image = generate_horizontal_chart(test_data)
-        await callback.message.answer_photo(photo=image, caption="График консультаций по животным 🐾")
-
+        photo = InputFile(image, filename="chart.png")
+        await callback.message.answer_photo(photo=photo, caption="График консультаций по животным 🐾")
         await callback.answer()
 
     elif data == "custom_period":
@@ -116,6 +116,8 @@ async def admin_dashboard(message: Message):
 if __name__ == "__main__":
     import asyncio
     asyncio.run(dp.start_polling(bot))
+
+
 
 
 
