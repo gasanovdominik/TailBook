@@ -33,3 +33,26 @@ def generate_pie_chart(data: dict) -> str:
     plt.savefig(file_path)
     plt.close()
     return file_path
+
+def generate_horizontal_chart(data: dict) -> str:
+    import matplotlib.pyplot as plt
+
+    items = list(data.items())
+    items.sort(key=lambda x: x[1])
+    labels = [i[0] for i in items]
+    values = [i[1] for i in items]
+
+    plt.figure(figsize=(10, 6))
+    bars = plt.barh(labels, values)
+    plt.xlabel("Количество")
+    plt.title("Горизонтальный график консультаций")
+    plt.tight_layout()
+
+    for bar in bars:
+        w = bar.get_width()
+        plt.text(w + 0.5, bar.get_y() + bar.get_height()/2, str(int(w)), va='center')
+
+    path = "horizontal_chart.png"
+    plt.savefig(path)
+    plt.close()
+    return path
