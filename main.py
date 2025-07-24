@@ -87,10 +87,13 @@ async def filter_callback(callback: CallbackQuery, state: FSMContext):
     if not rows:
         await callback.message.answer("Нет данных за выбранный период.")
     else:
-        text = "📊 Статистика консультаций:\n\n"
-        for animal, count in rows:
-            text += f"🐾 {animal}: {count}\n"
-        await callback.message.answer(text)
+        data_dict = {animal: count for animal, count in rows}
+        chart = generate_horizontal_chart(data_dict, title="Консультации по типам животных")
+        await callback.message.answer_photo(
+            types.BufferedInputFile(chart.read(), filename="chart.png"),
+            caption="📊 Статистика консультаций"
+        )
+        chart.close()
 
     await callback.answer()
 
@@ -132,10 +135,13 @@ async def set_end_date(message: Message, state: FSMContext):
     if not rows:
         await message.answer("Нет данных за выбранный период.")
     else:
-        text = f"📊 Консультации с {start_date} по {end_date}:\n\n"
-        for animal, count in rows:
-            text += f"🐾 {animal}: {count}\n"
-        await message.answer(text)
+        data_dict = {animal: count for animal, count in rows}
+        chart = generate_horizontal_chart(data_dict, title=f"Консультации с {start_date} по {end_date}")
+        await message.answer_photo(
+            types.BufferedInputFile(chart.read(), filename="chart.png"),
+            caption=f"📊 Консультации с {start_date} по {end_date}"
+        )
+        chart.close()
 
     await state.clear()
 
@@ -163,6 +169,7 @@ async def admin_command(message: Message):
 if __name__ == "__main__":
     import asyncio
     asyncio.run(dp.start_polling(bot))
+
 
 
 
